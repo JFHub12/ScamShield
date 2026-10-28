@@ -1,0 +1,6 @@
+{
+  "name": "ScamShield - Frontline Defense System",
+  "description": "Enterprise-grade fraud detection, MoMo verification, voice intelligence, and scam intelligence network for Ghana frontline merchants and consumers.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
