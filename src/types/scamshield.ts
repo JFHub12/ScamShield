@@ -26,6 +26,18 @@ export interface ThreatVectorMetric {
   csaGuideline: string;
 }
 
+export interface AiForensicReport {
+  aiVerdict: RiskTier;
+  confidenceScore: number;
+  linguisticDeceptionScore: number; // 0 - 100
+  psychologicalTactics: string[];
+  culturalAndDialectContext: string;
+  forensicSummary: string;
+  recommendedCounterAction: string;
+  guardrailsPassed: boolean;
+  modelUsed: string;
+}
+
 export interface AnalysisResult {
   inputType: 'message' | 'url' | 'payment_momo';
   rawInput: string;
@@ -40,6 +52,7 @@ export interface AnalysisResult {
   vectorMetrics: ThreatVectorMetric[];
   missingEvidence: string[];
   recommendedAction: string;
+  aiForensics?: AiForensicReport;
   technicalIndicators: {
     urgencyDetected: boolean;
     credentialRequest: boolean; // OTP, PIN, password
@@ -80,6 +93,11 @@ export interface VoiceIntelItem {
   riskTier: RiskTier;
   recommendedCounterAction: string;
   audioSimulationUrl?: string;
+  aiAnalysis?: {
+    coercionLevel: 'High' | 'Medium' | 'Low';
+    syntheticAudioMarkers: string[];
+    tacticalAdvice: string;
+  };
 }
 
 export interface EnterpriseIncident {

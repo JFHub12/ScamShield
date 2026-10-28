@@ -18,7 +18,8 @@ import {
   Smartphone,
   ChevronRight,
   ShieldCheck,
-  Check
+  Check,
+  Sparkles
 } from 'lucide-react';
 
 interface AnalyzerTabProps {
@@ -35,12 +36,13 @@ export const AnalyzerTab: React.FC<AnalyzerTabProps> = ({ onReportIncident }) =>
   );
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [detailTab, setDetailTab] = useState<'signals' | 'matrix' | 'evidence'>('signals');
+  const [isAiAnalyzing, setIsAiAnalyzing] = useState(false);
+  const [detailTab, setDetailTab] = useState<'signals' | 'matrix' | 'ai_forensics' | 'evidence'>('signals');
 
-  // MoMo Counter State
-  const [momoNumber, setMomoNumber] = useState('0244198234');
-  const [momoNetwork, setMomoNetwork] = useState<'MTN' | 'Telecel' | 'AT'>('MTN');
-  const [momoAmount, setMomoAmount] = useState('1500');
+  // MoMo POS Mode State
+  const [momoNumber, setMomoNumber] = useState('024 419 0991');
+  const [momoNetwork, setMomoNetwork] = useState('MTN MobileMoney');
+  const [momoAmount, setMomoAmount] = useState('2500');
   const [counterVerdict, setCounterVerdict] = useState<{
     tier: RiskTier;
     flaggedReason: string;
@@ -52,14 +54,54 @@ export const AnalyzerTab: React.FC<AnalyzerTabProps> = ({ onReportIncident }) =>
   const [frozenNotice, setFrozenNotice] = useState(false);
   const [verificationNotice, setVerificationNotice] = useState(false);
 
-  const handleRunAnalysis = (textToAnalyze?: string) => {
+  const handleRunAiForensics = async () => {
+    if (!inputText.trim()) return;
+    setIsAiAnalyzing(true);
+    try {
+      const resp = await fetch('/api/ai/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: inputText })
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        setAnalysisResult(data);
+        setDetailTab('ai_forensics');
+      } else {
+        const err = await resp.json();
+        console.warn('AI analysis error:', err);
+      }
+    } catch (e) {
+      console.warn('AI analysis network error:', e);
+    } finally {
+      setIsAiAnalyzing(false);
+    }
+  };
+
+  const handleRunAnalysis = async (textToAnalyze?: string) => {
     const text = textToAnalyze !== undefined ? textToAnalyze : inputText;
     setIsAnalyzing(true);
-    setTimeout(() => {
+    try {
+      const endpoint = text.startsWith('http') ? '/api/analyze/url' : '/api/analyze/message';
+      const bodyPayload = text.startsWith('http') ? { url: text } : { text };
+      const resp = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(bodyPayload)
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        setAnalysisResult(data);
+      } else {
+        const res = analyzeThreatInput(text, text.startsWith('http') ? 'url' : 'message');
+        setAnalysisResult(res);
+      }
+    } catch (e) {
       const res = analyzeThreatInput(text, text.startsWith('http') ? 'url' : 'message');
       setAnalysisResult(res);
+    } finally {
       setIsAnalyzing(false);
-    }, 250);
+    }
   };
 
   const handleSelectTestCase = (testCase: typeof SAMPLE_ANALYZER_TEST_CASES[0]) => {
@@ -74,38 +116,66 @@ export const AnalyzerTab: React.FC<AnalyzerTabProps> = ({ onReportIncident }) =>
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleMomoCheck = (e: React.FormEvent) => {
+  const handleMomoCheck = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanNum = momoNumber.replace(/\s+/g, '');
     
-    if (cleanNum.includes('419') || cleanNum.includes('991') || cleanNum.endsWith('234')) {
-      setCounterVerdict({
-        tier: 'high_risk',
-        flaggedReason: 'Recipient MSISDN identified in Ghana CSA Central Blocklist (Syndicate #44 - Impersonated Agent Bail Extortion & Fake Reversal Scam).',
-        velocityScore: 'HIGH ANOMALY (14 outbound cashouts in past 3 hours)',
-        simAge: 'SIM activated 6 days ago via provisional Ghana Card',
-        registeredName: 'K. AGYEMAN (Unverified KYC)',
-        blacklisted: true
+    try {
+      const resp = await fetch('/api/verify/momo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone: cleanNum,
+          network: momoNetwork,
+          amount: parseFloat(momoAmount) || 0
+        })
       });
-    } else if (cleanNum.includes('882') || cleanNum.endsWith('943')) {
-      setCounterVerdict({
-        tier: 'suspicious',
-        flaggedReason: 'Unusual merchant-to-peer float velocity spike. Flagged by 7 community field reports.',
-        velocityScore: 'ELEVATED VELOCITY (₵ 18,400 routed in 24 hours)',
-        simAge: 'SIM activated 3 months ago',
-        registeredName: 'E. MENSAH / RECRUITMENT DESK',
-        blacklisted: false
-      });
-    } else {
-      setCounterVerdict({
-        tier: 'low_concern',
-        flaggedReason: 'No elevated risk flags or negative incident reports associated with this wallet.',
-        velocityScore: 'NOMINAL ACTIVITY (Standard consumer cash-out pattern)',
-        simAge: 'SIM registered 4+ years (Full Ghana Card biometrics verified)',
-        registeredName: 'J. MENSAH-OSEI',
-        blacklisted: false
-      });
+
+      if (resp.ok) {
+        const data = await resp.json();
+        setCounterVerdict({
+          tier: data.tier,
+          flaggedReason: data.flaggedReason,
+          velocityScore: data.velocityScore,
+          simAge: data.simAge,
+          registeredName: data.registeredName,
+          blacklisted: data.blacklisted
+        });
+      } else {
+        throw new Error('API returned error');
+      }
+    } catch (e) {
+      // Fallback
+      if (cleanNum.includes('419') || cleanNum.includes('991') || cleanNum.endsWith('234')) {
+        setCounterVerdict({
+          tier: 'high_risk',
+          flaggedReason: 'Recipient MSISDN identified in Ghana CSA Central Blocklist (Syndicate #44 - Impersonated Agent Bail Extortion & Fake Reversal Scam).',
+          velocityScore: 'HIGH ANOMALY (14 outbound cashouts in past 3 hours)',
+          simAge: 'SIM activated 6 days ago via provisional Ghana Card',
+          registeredName: 'K. AGYEMAN (Unverified KYC)',
+          blacklisted: true
+        });
+      } else if (cleanNum.includes('882') || cleanNum.endsWith('943')) {
+        setCounterVerdict({
+          tier: 'suspicious',
+          flaggedReason: 'Unusual merchant-to-peer float velocity spike. Flagged by 7 community field reports.',
+          velocityScore: 'ELEVATED VELOCITY (₵ 18,400 routed in 24 hours)',
+          simAge: 'SIM activated 3 months ago',
+          registeredName: 'E. MENSAH / RECRUITMENT DESK',
+          blacklisted: false
+        });
+      } else {
+        setCounterVerdict({
+          tier: 'low_concern',
+          flaggedReason: 'No elevated risk flags or negative incident reports associated with this wallet.',
+          velocityScore: 'NOMINAL ACTIVITY (Standard consumer cash-out pattern)',
+          simAge: 'SIM registered 4+ years (Full Ghana Card biometrics verified)',
+          registeredName: 'J. MENSAH-OSEI',
+          blacklisted: false
+        });
+      }
     }
+
     setFrozenNotice(false);
     setVerificationNotice(false);
   };
@@ -195,23 +265,44 @@ export const AnalyzerTab: React.FC<AnalyzerTabProps> = ({ onReportIncident }) =>
               </div>
 
               {/* Main Submit Action */}
-              <button
-                onClick={() => handleRunAnalysis()}
-                disabled={isAnalyzing}
-                className="w-full min-h-[48px] bg-[#0F2A47] hover:bg-[#081A2D] active:scale-[0.99] text-white font-semibold rounded-xl text-xs sm:text-sm transition flex items-center justify-center gap-2 shadow-xs"
-              >
-                {isAnalyzing ? (
-                  <>
-                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                    <span>Analyzing Indicators...</span>
-                  </>
-                ) : (
-                  <>
-                    <Search className="w-4 h-4 text-[#0E9F8E]" />
-                    <span>Check Suspicious Input</span>
-                  </>
-                )}
-              </button>
+              <div className="space-y-2">
+                <button
+                  onClick={() => handleRunAnalysis()}
+                  disabled={isAnalyzing || isAiAnalyzing}
+                  className="w-full min-h-[46px] bg-[#0F2A47] hover:bg-[#081A2D] active:scale-[0.99] text-white font-semibold rounded-xl text-xs sm:text-sm transition flex items-center justify-center gap-2 shadow-xs"
+                >
+                  {isAnalyzing ? (
+                    <>
+                      <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                      <span>Analyzing Indicators...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Search className="w-4 h-4 text-[#0E9F8E]" />
+                      <span>Check Suspicious Input</span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleRunAiForensics}
+                  disabled={isAiAnalyzing || isAnalyzing || !inputText.trim()}
+                  className="w-full min-h-[42px] bg-gradient-to-r from-teal-900 to-[#0F2A47] hover:from-teal-800 hover:to-[#1a385b] active:scale-[0.99] text-teal-100 border border-teal-500/30 font-semibold rounded-xl text-xs transition flex items-center justify-center gap-2 shadow-xs group disabled:opacity-50"
+                >
+                  {isAiAnalyzing ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-teal-300/30 border-t-teal-300 rounded-full animate-spin"></span>
+                      <span>Running Gemini 3.8 Flash Deception Forensics...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4 text-[#0E9F8E] group-hover:rotate-12 transition-transform" />
+                      <span>Deep AI Forensic Report (Gemini 3.8 Flash)</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
 
             {/* Quick 1-Click Samples (Clean & Compact) */}
@@ -317,6 +408,21 @@ export const AnalyzerTab: React.FC<AnalyzerTabProps> = ({ onReportIncident }) =>
                   </button>
 
                   <button
+                    onClick={() => setDetailTab('ai_forensics')}
+                    className={`px-3 py-1.5 rounded-lg font-bold transition flex items-center gap-1.5 ${
+                      detailTab === 'ai_forensics'
+                        ? 'bg-teal-50 text-teal-800 border border-teal-200'
+                        : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-[#0E9F8E]" />
+                    <span>AI Forensics</span>
+                    {analysisResult.aiForensics && (
+                      <span className="w-2 h-2 rounded-full bg-[#0E9F8E]"></span>
+                    )}
+                  </button>
+
+                  <button
                     onClick={() => setDetailTab('evidence')}
                     className={`px-3 py-1.5 rounded-lg font-bold transition ${
                       detailTab === 'evidence'
@@ -385,6 +491,95 @@ export const AnalyzerTab: React.FC<AnalyzerTabProps> = ({ onReportIncident }) =>
                         </div>
                       ))}
                     </div>
+                  </div>
+                )}
+
+                {/* Sub-tab: AI Forensics */}
+                {detailTab === 'ai_forensics' && (
+                  <div className="space-y-3 pt-1 animate-in fade-in">
+                    {analysisResult.aiForensics ? (
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between p-3 rounded-xl bg-teal-950 text-white border border-teal-800">
+                          <div className="flex items-center gap-2">
+                            <Sparkles className="w-4 h-4 text-[#0E9F8E]" />
+                            <div>
+                              <span className="text-xs font-bold block text-teal-200">
+                                {analysisResult.aiForensics.modelUsed}
+                              </span>
+                              <span className="text-[10px] text-teal-300/80">
+                                Powered by Google GenAI • Rate Limited & Guardrailed
+                              </span>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-[10px] uppercase font-mono text-teal-300/80 block">Deception Score</span>
+                            <span className="text-base font-extrabold text-[#F2A33A]">
+                              {analysisResult.aiForensics.linguisticDeceptionScore}/100
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Psychological Tactics */}
+                        <div className="p-3.5 rounded-xl border border-slate-200 bg-white space-y-2">
+                          <span className="text-xs font-bold text-slate-900 block">
+                            Psychological Exploitation Tactics Detected:
+                          </span>
+                          <div className="flex flex-wrap gap-1.5">
+                            {analysisResult.aiForensics.psychologicalTactics.map((tactic: string, i: number) => (
+                              <span
+                                key={i}
+                                className="px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200 text-[11px] font-semibold"
+                              >
+                                {tactic}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Cultural & Dialect Context */}
+                        <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50 space-y-1 text-xs">
+                          <span className="font-bold text-slate-800 block text-[11px]">
+                            Ghanaian Dialect & Cultural Manipulation Context:
+                          </span>
+                          <p className="text-slate-600 leading-relaxed text-[11px]">
+                            {analysisResult.aiForensics.culturalAndDialectContext}
+                          </p>
+                        </div>
+
+                        {/* AI Counter-Directive */}
+                        <div className="p-3.5 rounded-xl border border-[#0E9F8E]/30 bg-[#0E9F8E]/5 text-xs space-y-1">
+                          <span className="font-bold text-[#006f63] block text-[11px]">
+                            AI Counter-Directive & Immediate Action:
+                          </span>
+                          <p className="text-slate-700 leading-relaxed text-[11px]">
+                            {analysisResult.aiForensics.recommendedCounterAction}
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="p-5 rounded-xl border-2 border-dashed border-teal-200 bg-teal-50/50 text-center space-y-3">
+                        <div className="w-10 h-10 rounded-full bg-teal-100 text-teal-800 flex items-center justify-center mx-auto">
+                          <Sparkles className="w-5 h-5 text-[#0E9F8E]" />
+                        </div>
+                        <div className="max-w-md mx-auto space-y-1">
+                          <h4 className="text-xs font-bold text-[#0F2A47]">
+                            GenAI Linguistic Deception Analysis Not Yet Run
+                          </h4>
+                          <p className="text-[11px] text-slate-600 leading-relaxed">
+                            Run our server-side Google GenAI (Gemini 3.8 Flash) forensic evaluation to dissect dialect nuances, social engineering hooks, and psychological deception levels with strict PIN redaction.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleRunAiForensics}
+                          disabled={isAiAnalyzing || !inputText.trim()}
+                          className="px-4 py-2 bg-[#0F2A47] hover:bg-[#081A2D] text-white font-semibold rounded-xl text-xs inline-flex items-center gap-1.5 shadow-xs"
+                        >
+                          <Sparkles className="w-3.5 h-3.5 text-[#0E9F8E]" />
+                          <span>{isAiAnalyzing ? 'Analyzing via GenAI...' : 'Run GenAI Forensic Evaluation'}</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
 

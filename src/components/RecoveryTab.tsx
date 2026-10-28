@@ -11,12 +11,16 @@ import {
   AlertCircle,
   Landmark,
   Building2,
-  FileText
+  FileText,
+  Sparkles
 } from 'lucide-react';
 
 export const RecoveryTab: React.FC = () => {
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [dossierCopied, setDossierCopied] = useState(false);
+  const [isAiEnhancing, setIsAiEnhancing] = useState(false);
+  const [aiEnhancedAffidavit, setAiEnhancedAffidavit] = useState<string | null>(null);
+  const [aiNotice, setAiNotice] = useState<string | null>(null);
 
   // Victim Report Builder fields
   const [victimName, setVictimName] = useState('');
@@ -67,6 +71,38 @@ ${incidentDetails || 'Social engineering / MoMo transfer deception under duress.
     navigator.clipboard.writeText(text);
     setDossierCopied(true);
     setTimeout(() => setDossierCopied(false), 2500);
+  };
+
+  const handleGenerateAiAffidavit = async () => {
+    setIsAiEnhancing(true);
+    setAiNotice(null);
+    try {
+      const resp = await fetch('/api/ai/enhance-dossier', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          victimName,
+          victimPhone,
+          suspectPhone,
+          amountLost,
+          telecom,
+          incidentDate,
+          incidentDetails: incidentDetails || 'Suspect impersonated MoMo service desk and used urgent threats of SIM/wallet deactivation to coerce unauthorized wallet funds transfer.'
+        })
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        setAiEnhancedAffidavit(data.affidavit);
+        setAiNotice(`Drafted via ${data.modelUsed} • Rate limit enforced`);
+      } else {
+        const err = await resp.json();
+        setAiNotice(`AI affidavit error: ${err.error || 'Server error'}`);
+      }
+    } catch (e) {
+      setAiNotice('Network error contacting backend AI service.');
+    } finally {
+      setIsAiEnhancing(false);
+    }
   };
 
   return (
@@ -271,11 +307,79 @@ ${incidentDetails || 'Social engineering / MoMo transfer deception under duress.
               </ul>
             </div>
 
+            {/* AI Legal Affidavit Generation */}
+            <div className="p-4 rounded-xl bg-gradient-to-br from-teal-950 to-[#0F2A47] text-white space-y-3 border border-teal-800">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-[#0E9F8E]" />
+                  <span className="text-xs font-bold text-teal-200">
+                    AI Legal CID Affidavit Generator (Gemini 3.8 Flash)
+                  </span>
+                </div>
+                <span className="text-[10px] bg-teal-500/20 text-teal-300 px-2 py-0.5 rounded-full font-mono">
+                  Guardrailed
+                </span>
+              </div>
+              <p className="text-[11px] text-teal-100/80 leading-relaxed">
+                Automatically formats this incident into an official sworn statement citing the Ghana Electronic Transactions Act (Act 772) and Criminal Offences Act (Act 29).
+              </p>
+              <button
+                type="button"
+                onClick={handleGenerateAiAffidavit}
+                disabled={isAiEnhancing}
+                className="w-full min-h-[42px] bg-[#0E9F8E] hover:bg-[#008778] active:scale-[0.99] text-[#0F2A47] font-bold rounded-xl text-xs transition flex items-center justify-center gap-2 shadow-sm disabled:opacity-50"
+              >
+                {isAiEnhancing ? (
+                  <>
+                    <span className="w-3.5 h-3.5 border-2 border-[#0F2A47]/30 border-t-[#0F2A47] rounded-full animate-spin"></span>
+                    <span>Drafting Sworn Legal Affidavit via Gemini...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4 text-[#0F2A47]" />
+                    <span>Generate AI Sworn Legal Affidavit</span>
+                  </>
+                )}
+              </button>
+
+              {aiNotice && (
+                <p className="text-[10px] text-teal-300 font-mono text-center">
+                  {aiNotice}
+                </p>
+              )}
+            </div>
+
+            {/* AI Affidavit Display Preview if generated */}
+            {aiEnhancedAffidavit && (
+              <div className="p-4 rounded-xl bg-slate-900 border border-teal-500/40 text-teal-100 space-y-3 animate-in fade-in">
+                <div className="flex items-center justify-between pb-2 border-b border-teal-500/20">
+                  <span className="text-xs font-bold text-teal-300 flex items-center gap-1.5">
+                    <FileText className="w-3.5 h-3.5" />
+                    <span>Sworn Legal Affidavit Preview</span>
+                  </span>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(aiEnhancedAffidavit);
+                      setDossierCopied(true);
+                      setTimeout(() => setDossierCopied(false), 2000);
+                    }}
+                    className="px-2.5 py-1 rounded bg-teal-800 hover:bg-teal-700 text-[11px] font-semibold text-white flex items-center gap-1"
+                  >
+                    <Copy className="w-3 h-3" />
+                    <span>{dossierCopied ? 'Copied' : 'Copy Affidavit'}</span>
+                  </button>
+                </div>
+                <pre className="text-[11px] font-mono leading-relaxed whitespace-pre-wrap max-h-60 overflow-y-auto p-2.5 rounded bg-black/40 text-slate-200">
+                  {aiEnhancedAffidavit}
+                </pre>
+              </div>
+            )}
+
             <div className="pt-2 flex flex-col sm:flex-row items-center justify-end gap-3">
               <button
                 type="button"
                 onClick={() => {
-                  const text = `=====================================================
+                  const text = aiEnhancedAffidavit || `=====================================================
 SCAMSHIELD FRAUD INCIDENT DOSSIER & POLICE REPORT
 Prepared for: Cyber Security Authority (CSA) & Ghana Police CID Cyber Crime Unit
 =====================================================
